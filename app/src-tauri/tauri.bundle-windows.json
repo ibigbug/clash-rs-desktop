@@ -1,11 +1,13 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "build": {
-    "beforeBuildCommand": "pnpm build && cargo build --release -p clash-rs-desktop-service"
+    "beforeBuildCommand": "pnpm build && node scripts/fetch-core.mjs && cargo build --release -p clash-rs-desktop-service"
   },
   "bundle": {
     "resources": {
-      "../../target/release/clash-rs-desktop-service.exe": "clash-rs-desktop-service.exe"
+      "../../target/release/clash-rs-desktop-service.exe": "clash-rs-desktop-service.exe",
+      "core/clash-rs.exe": "core/clash-rs.exe",
+      "core/release.json": "core/release.json"
     }
   }
 }

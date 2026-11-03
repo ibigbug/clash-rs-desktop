@@ -21,9 +21,21 @@ struct TrayItems {
 }
 
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
-    let status = MenuItem::with_id(app, "status", t("未连接", "Disconnected"), false, None::<&str>)?;
+    let status = MenuItem::with_id(
+        app,
+        "status",
+        t("未连接", "Disconnected"),
+        false,
+        None::<&str>,
+    )?;
     let toggle = MenuItem::with_id(app, "toggle", t("连接", "Connect"), true, None::<&str>)?;
-    let show = MenuItem::with_id(app, "show", t("打开主界面", "Open Choclite"), true, None::<&str>)?;
+    let show = MenuItem::with_id(
+        app,
+        "show",
+        t("打开主界面", "Open Choclite"),
+        true,
+        None::<&str>,
+    )?;
     let quit = MenuItem::with_id(app, "quit", t("退出", "Quit"), true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
@@ -81,7 +93,11 @@ pub fn refresh(app: &AppHandle, view: &View) {
         Phase::Disconnected => (t("未连接", "Disconnected"), t("连接", "Connect"), true),
         Phase::Connecting => (t("正在连接…", "Connecting…"), t("连接", "Connect"), false),
         Phase::Connected => (t("已连接", "Connected"), t("断开连接", "Disconnect"), true),
-        Phase::Disconnecting => (t("正在断开…", "Disconnecting…"), t("断开连接", "Disconnect"), false),
+        Phase::Disconnecting => (
+            t("正在断开…", "Disconnecting…"),
+            t("断开连接", "Disconnect"),
+            false,
+        ),
     };
     let _ = items.status.set_text(status);
     let _ = items.toggle.set_text(toggle);

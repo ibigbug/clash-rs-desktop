@@ -252,34 +252,13 @@ impl CoreUpdateManager {
         } else {
             archive
         };
-        let sha256 = sha256_hex(&binary);
-
-        if files.current_binary.exists() {
-            if files.rollback_binary.exists() {
-                fs::remove_file(&files.rollback_binary)?;
-            }
-            fs::rename(&files.current_binary, &files.rollback_binary)?;
-        }
-
-        fs::write(&files.current_binary, binary)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt as _;
-            fs::set_permissions(&files.current_binary, fs::Permissions::from_mode(0o755))?;
-        }
-
-        let active = ActiveCore {
-            channel: candidate.channel,
-            release_tag: candidate.release_tag.clone(),
-            version: version_from_tag(&candidate.release_tag),
-            commit: None,
-            asset_name: candidate.asset_name.clone(),
-            binary_path: files.current_binary.clone(),
-            binary_sha256: Some(sha256),
-            updated_at: OffsetDateTime::now_utc(),
-        };
-        active.save(&files.active_metadata)?;
-        Ok(active)
+        activate_binary(
+            &binary,
+            candidate.channel,
+            &candidate.release_tag,
+            &candidate.asset_name,
+            files,
+        )
     }
 
     async fn fetch_release(&self, channel: UpdateChannel) -> anyhow::Result<GitHubRelease> {
@@ -394,6 +373,90 @@ pub fn decide_update(
     }
 }
 
+/// Install `binary` as the managed core (keeping the previous one for
+/// rollback) and record which release it came from.
+fn activate_binary(
+    binary: &[u8],
+    channel: UpdateChannel,
+    release_tag: &str,
+    asset_name: &str,
+    files: &ManagedCoreFiles,
+) -> anyhow::Result<ActiveCore> {
+    if let Some(parent) = files.current_binary.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    if files.current_binary.exists() {
+        if files.rollback_binary.exists() {
+            fs::remove_file(&files.rollback_binary)?;
+        }
+        fs::rename(&files.current_binary, &files.rollback_binary)?;
+    }
+
+    fs::write(&files.current_binary, binary)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        fs::set_permissions(&files.current_binary, fs::Permissions::from_mode(0o755))?;
+    }
+
+    let active = ActiveCore {
+        channel,
+        release_tag: release_tag.to_owned(),
+        version: version_from_tag(release_tag),
+        commit: None,
+        asset_name: asset_name.to_owned(),
+        binary_path: files.current_binary.clone(),
+        binary_sha256: Some(sha256_hex(binary)),
+        updated_at: OffsetDateTime::now_utc(),
+    };
+    active.save(&files.active_metadata)?;
+    Ok(active)
+}
+
+/// A core shipped inside the installer (see `app/scripts/fetch-core.mjs`).
+/// Used on first run so connecting doesn't depend on reaching GitHub; it is
+/// copied into the managed core directory, where updates replace it as usual.
+#[derive(Debug, Clone)]
+pub struct BundledCore {
+    pub binary: PathBuf,
+    pub release_tag: String,
+    pub asset_name: String,
+}
+
+impl BundledCore {
+    /// Read `<dir>/release.json` and the binary next to it; `None` when the
+    /// build has no bundled core (e.g. development builds).
+    pub fn from_dir(dir: &Path) -> Option<Self> {
+        #[derive(Deserialize)]
+        struct Release {
+            tag: String,
+            asset: String,
+        }
+        let release: Release =
+            serde_json::from_str(&fs::read_to_string(dir.join("release.json")).ok()?).ok()?;
+        let binary = dir.join(format!("clash-rs{}", std::env::consts::EXE_SUFFIX));
+        if !binary.exists() {
+            return None;
+        }
+        Some(Self {
+            binary,
+            release_tag: release.tag,
+            asset_name: release.asset,
+        })
+    }
+
+    pub fn install(&self, files: &ManagedCoreFiles) -> anyhow::Result<ActiveCore> {
+        let binary = fs::read(&self.binary)?;
+        activate_binary(
+            &binary,
+            UpdateChannel::Stable,
+            &self.release_tag,
+            &self.asset_name,
+            files,
+        )
+    }
+}
+
 fn extract_clash_binary_from_zip(archive: &[u8]) -> anyhow::Result<Vec<u8>> {
     let mut zip = zip::ZipArchive::new(Cursor::new(archive))?;
     for index in 0..zip.len() {
@@ -492,5 +555,50 @@ mod tests {
     fn version_removes_v_prefix() {
         assert_eq!(version_from_tag("v0.10.6"), "0.10.6");
         assert_eq!(version_from_tag("latest"), "latest");
+    }
+
+    #[test]
+    fn bundled_core_is_installed_as_the_managed_core() {
+        use super::{BundledCore, ManagedCoreFiles};
+
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("choclite-bundled-core-{nonce}"));
+        let bundle = root.join("resources").join("core");
+        std::fs::create_dir_all(&bundle).unwrap();
+        let exe = format!("clash-rs{}", std::env::consts::EXE_SUFFIX);
+
+        // No release.json (a development build): nothing bundled.
+        assert!(BundledCore::from_dir(&bundle).is_none());
+
+        std::fs::write(bundle.join(&exe), b"core").unwrap();
+        std::fs::write(
+            bundle.join("release.json"),
+            r#"{ "tag": "v0.10.10", "asset": "clash-rs-test" }"#,
+        )
+        .unwrap();
+        let bundled = BundledCore::from_dir(&bundle).expect("bundled core");
+
+        let data = root.join("data");
+        let files = ManagedCoreFiles {
+            current_binary: data.join(&exe),
+            rollback_binary: data.join("rollback"),
+            wintun_dll: data.join("wintun.dll"),
+            active_metadata: data.join("active.json"),
+        };
+        let active = bundled.install(&files).unwrap();
+
+        assert_eq!(active.version, "0.10.10");
+        assert_eq!(active.asset_name, "clash-rs-test");
+        assert_eq!(std::fs::read(&files.current_binary).unwrap(), b"core");
+        // Recorded like a downloaded core, so updates treat it the same way.
+        assert_eq!(
+            ActiveCore::load(&files.active_metadata).unwrap().version,
+            "0.10.10"
+        );
+
+        std::fs::remove_dir_all(&root).ok();
     }
 }

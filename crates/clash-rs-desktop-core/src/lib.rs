@@ -17,13 +17,14 @@ pub mod settings;
 pub mod system_proxy;
 
 pub use binary_update::{
-    ActiveCore, CoreUpdateManager, CoreUpdateSettings, GitHubRelease, GitHubReleaseAsset,
-    ManagedCoreFiles, ReleaseCandidate, UpdateChannel, UpdateCheckResult, UpdateDecision,
-    WindowsArch, select_release_candidate,
+    ActiveCore, BundledCore, CoreUpdateManager, CoreUpdateSettings, GitHubRelease,
+    GitHubReleaseAsset, ManagedCoreFiles, ReleaseCandidate, UpdateChannel, UpdateCheckResult,
+    UpdateDecision, WindowsArch, select_release_candidate,
 };
 pub use config_layers::{RuntimeConfigBuilder, apply_overlay, merge_yaml};
 pub use engine::{Engine, NeedsServiceInstall};
 pub use generate::{CustomRule, RuleAction, RuleKind};
+pub use i18n::{Language, t};
 pub use ipc::{
     ClashIpcClient, ClashIpcClientConfig, ConfigReloadRequest, ConnectionsResponse,
     ControllerConfigPatch, ControllerConfigs, ControllerEndpoint, MemoryResponse,
@@ -35,7 +36,6 @@ pub use profile::{
     FetchedSubscription, ProfileId, ProfileManifest, ProfileSource, ProfileStore, SubscriptionInfo,
     UserProfile, default_profile_yaml, fetch_subscription,
 };
-pub use i18n::{Language, t};
 pub use settings::{AppSettings, ConnectMode, RoutingMode, SettingsStore, SystemProxySettings};
 pub use system_proxy::{
     PlatformSystemProxy, SystemProxyBackend, SystemProxySnapshot, SystemProxyTarget,

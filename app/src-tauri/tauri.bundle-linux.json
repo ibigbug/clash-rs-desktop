@@ -5,7 +5,9 @@
   },
   "bundle": {
     "resources": {
-      "linux/bin/clash-rs-desktop-service": "clash-rs-desktop-service"
+      "linux/bin/clash-rs-desktop-service": "clash-rs-desktop-service",
+      "core/clash-rs": "core/clash-rs",
+      "core/release.json": "core/release.json"
     },
     "linux": {
       "deb": {

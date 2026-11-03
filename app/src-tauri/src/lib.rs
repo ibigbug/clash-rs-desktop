@@ -3,8 +3,8 @@ mod nodes;
 mod state;
 mod tray;
 
-use clash_rs_desktop_core::{AppPaths, Engine};
-use tauri::{AppHandle, Manager, WindowEvent};
+use clash_rs_desktop_core::{AppPaths, BundledCore, Engine};
+use tauri::{AppHandle, Manager, WindowEvent, path::BaseDirectory};
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
@@ -44,7 +44,14 @@ pub fn run() {
         )
         .setup(|app| {
             let data_dir = app.path().app_local_data_dir()?;
-            let engine = Engine::load(AppPaths::from_program_data(data_dir))?;
+            let mut engine = Engine::load(AppPaths::from_program_data(data_dir))?;
+            // Installers ship a core so the first connection works offline.
+            let bundled = app
+                .path()
+                .resolve("core", BaseDirectory::Resource)
+                .ok()
+                .and_then(|dir| BundledCore::from_dir(&dir));
+            engine.set_bundled_core(bundled);
             clash_rs_desktop_core::i18n::set_language(engine.settings().settings().language);
             let auto_connect = engine.settings().settings().auto_connect;
             app.manage(AppState::new(engine));

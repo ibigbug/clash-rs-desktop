@@ -4,6 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 pnpm build
+node scripts/fetch-core.mjs
 cargo build --release -p clash-rs-desktop-service
 target_dir="${CARGO_TARGET_DIR:-../target}"
 mkdir -p src-tauri/linux/bin

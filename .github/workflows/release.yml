@@ -68,6 +68,8 @@ jobs:
           cache-on-failure: true
       - name: Build installer
         working-directory: app
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           pnpm install --frozen-lockfile
           pnpm bundle:windows
@@ -103,6 +105,8 @@ jobs:
           cache-on-failure: true
       - name: Build packages
         working-directory: app
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           pnpm install --frozen-lockfile
           pnpm bundle:linux

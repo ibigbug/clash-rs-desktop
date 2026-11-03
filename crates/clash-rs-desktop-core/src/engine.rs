@@ -18,7 +18,7 @@ use serde::Serialize;
 use serde_yaml::Value;
 
 use crate::{
-    ActiveCore, AppPaths, ClashIpcClient, ClashIpcClientConfig, ClashProcessManager,
+    ActiveCore, AppPaths, BundledCore, ClashIpcClient, ClashIpcClientConfig, ClashProcessManager,
     CoreLaunchRequest, CoreLog, CoreState, CoreUpdateManager, ManagedCoreFiles, ProfileStore,
     SettingsStore, SystemProxyBackend, SystemProxySnapshot,
     elevate::{Elevated, run_elevated},
@@ -91,6 +91,8 @@ pub struct Engine {
     leaks: Option<LeakDetector>,
     /// The config the core is running, for diagnostics.
     running_config: Option<Value>,
+    /// Core shipped with the installer, installed on first run.
+    bundled_core: Option<BundledCore>,
 }
 
 impl Engine {
@@ -116,6 +118,7 @@ impl Engine {
             local: LocalNetwork::detect(),
             leaks: None,
             running_config: None,
+            bundled_core: None,
             paths,
         };
 
@@ -224,7 +227,13 @@ impl Engine {
             .filter(|active| active.binary_path.exists())
     }
 
-    /// The installed core, downloading the latest release on first use.
+    /// Use the core shipped with the installer on first run.
+    pub fn set_bundled_core(&mut self, core: Option<BundledCore>) {
+        self.bundled_core = core;
+    }
+
+    /// The installed core. On first use: the one shipped with the installer,
+    /// else the latest release downloaded from GitHub.
     pub async fn ensure_core(
         &self,
         on_step: &(dyn Fn(&str) + Send + Sync),
@@ -236,6 +245,19 @@ impl Engine {
             std::env::var_os(CORE_OVERRIDE_ENV).is_none(),
             "{CORE_OVERRIDE_ENV} points at a missing file"
         );
+
+        let files = ManagedCoreFiles::from_paths(&self.paths);
+        if let Some(bundled) = &self.bundled_core {
+            match bundled.install(&files) {
+                Ok(core) => {
+                    self.log
+                        .note(&format!("using bundled core {}", core.version));
+                    return Ok(core);
+                }
+                // Fall back to downloading rather than failing the connection.
+                Err(err) => self.log.note(&format!("bundled core unusable: {err:#}")),
+            }
+        }
 
         on_step(t(
             "首次使用，正在下载内核…",

@@ -37,3 +37,6 @@ Desktop.ini
 # Windows shortcut/zone metadata side files
 *.lnk
 *.Zone.Identifier
+
+# clash-rs core fetched at bundle time (app/scripts/fetch-core.mjs)
+/app/src-tauri/core/
