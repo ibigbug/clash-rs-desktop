@@ -1,6 +1,9 @@
 # Builds the Windows installer and Linux packages and publishes them on the
 # public distribution repo (a fork of this one).
 #
+# - Push to master: a nightly build. The `nightly` pre-release (and tag) on the
+#   distribution repo always holds the newest master build, under fixed file
+#   names. A newer push cancels a nightly build still in progress.
 # - Push a tag `vX.Y.Z` (must match the app version): the same tag is created
 #   on the distribution repo and the release is published.
 # - Run the workflow by hand: a test build of the current commit goes to a
@@ -13,8 +16,14 @@ name: Release
 
 on:
   push:
+    branches: [master]
     tags: ["v*"]
+    paths-ignore: ["**.md", "docs/**"]
   workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type == 'branch' }}
 
 permissions:
   contents: read
@@ -27,7 +36,9 @@ jobs:
   version:
     runs-on: ubuntu-latest
     outputs:
-      tag: ${{ steps.version.outputs.tag }}
+      kind: ${{ steps.version.outputs.kind }}
+      version: ${{ steps.version.outputs.version }}
+      build: ${{ steps.version.outputs.build }}
     steps:
       - uses: actions/checkout@v7
       - name: Check the release token
@@ -39,18 +50,30 @@ jobs:
             exit 1
           fi
       - id: version
-        name: Read the app version
+        name: Decide what to build
         run: |
           version=$(jq -r .version app/src-tauri/tauri.conf.json)
-          if [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" != "v$version" ]]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match the app version $version"
-            exit 1
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            if [[ "$GITHUB_REF_NAME" != "v$version" ]]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match the app version $version"
+              exit 1
+            fi
+            echo "kind=release" >> "$GITHUB_OUTPUT"
+          elif [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            echo "kind=nightly" >> "$GITHUB_OUTPUT"
+            # Shown in Settings → About instead of the plain version.
+            echo "build=$version-nightly.$(date -u +%Y%m%d)+${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          else
+            echo "kind=test" >> "$GITHUB_OUTPUT"
+            echo "build=$version-test+${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
-          echo "tag=v$version" >> "$GITHUB_OUTPUT"
 
   windows:
     needs: version
     runs-on: windows-latest
+    env:
+      CHOCLITE_BUILD: ${{ needs.version.outputs.build }}
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -81,6 +104,8 @@ jobs:
     needs: version
     # The oldest supported runner, so the AppImage runs on older glibc.
     runs-on: ubuntu-22.04
+    env:
+      CHOCLITE_BUILD: ${{ needs.version.outputs.build }}
     steps:
       - uses: actions/checkout@v7
       - name: Install system packages
@@ -125,37 +150,63 @@ jobs:
       - name: Sync the distribution repo
         env:
           GH_TOKEN: ${{ secrets.WATFAQ_RELEASE_PAT }}
-        # Fast-forward the fork so the release can point at this commit.
+        # Fast-forward the fork so tags and releases can point at this commit.
         run: gh api -X POST "repos/$RELEASE_REPO/merge-upstream" -f branch=master
       - name: Publish
         env:
           GH_TOKEN: ${{ secrets.WATFAQ_RELEASE_PAT }}
           GH_REPO: ${{ env.RELEASE_REPO }}
-          TAG: ${{ needs.version.outputs.tag }}
+          KIND: ${{ needs.version.outputs.kind }}
+          VERSION: ${{ needs.version.outputs.version }}
+          BUILD: ${{ needs.version.outputs.build }}
         run: |
           # Multi-path artifacts keep their bundle/<kind>/ folders; flatten.
           find dist -mindepth 2 -type f -exec mv -t dist {} +
           find dist -mindepth 1 -type d -delete
-          ls -l dist
-          (cd dist && sha256sum * > SHA256SUMS.txt)
-          if [[ "$GITHUB_REF_TYPE" != tag ]]; then
-            gh release delete test-build --yes 2>/dev/null || true
-            gh release create test-build dist/* --draft --target "$GITHUB_SHA" \
-              --title "Test build $TAG (${GITHUB_SHA::7})" \
-              --notes "Built by hand from $GITHUB_SHA. Not a release."
-            exit 0
-          fi
 
-          # Same tag as here, on the same commit (force: a re-run may move it).
-          if gh api "repos/$GH_REPO/git/refs/tags/$TAG" >/dev/null 2>&1; then
-            gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$TAG" -f sha="$GITHUB_SHA" -F force=true
-          else
-            gh api "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$GITHUB_SHA"
-          fi
+          # Point a tag on the distribution repo at this commit (force: a
+          # re-run or the next nightly moves it).
+          move_tag() {
+            if gh api "repos/$GH_REPO/git/refs/tags/$1" >/dev/null 2>&1; then
+              gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$1" -f sha="$GITHUB_SHA" -F force=true >/dev/null
+            else
+              gh api "repos/$GH_REPO/git/refs" -f ref="refs/tags/$1" -f sha="$GITHUB_SHA" >/dev/null
+            fi
+          }
 
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/* --clobber
-            gh release edit "$TAG" --draft=false --tag "$TAG"
-          else
-            gh release create "$TAG" dist/* --verify-tag --title "Choclite $TAG" --generate-notes
-          fi
+          case "$KIND" in
+            test)
+              (cd dist && sha256sum * > SHA256SUMS.txt)
+              gh release delete test-build --yes 2>/dev/null || true
+              gh release create test-build dist/* --draft --target "$GITHUB_SHA" \
+                --title "Test build $BUILD" --notes "Built by hand from $GITHUB_SHA. Not a release."
+              ;;
+
+            nightly)
+              # Fixed names, so the download links always give the newest build.
+              for f in dist/*; do mv "$f" "${f/_${VERSION}_/_nightly_}"; done
+              (cd dist && sha256sum * > SHA256SUMS.txt)
+              ls -l dist
+              move_tag nightly
+              notes="Latest build of master: $BUILD ($GITHUB_SHA). Built automatically on every push; may be unstable."
+              if gh release view nightly >/dev/null 2>&1; then
+                gh release upload nightly dist/* --clobber
+                gh release edit nightly --title "Nightly ($BUILD)" --notes "$notes" --prerelease --latest=false
+              else
+                gh release create nightly dist/* --verify-tag --prerelease --latest=false \
+                  --title "Nightly ($BUILD)" --notes "$notes"
+              fi
+              ;;
+
+            release)
+              (cd dist && sha256sum * > SHA256SUMS.txt)
+              tag="v$VERSION"
+              move_tag "$tag"
+              if gh release view "$tag" >/dev/null 2>&1; then
+                gh release upload "$tag" dist/* --clobber
+                gh release edit "$tag" --draft=false --tag "$tag"
+              else
+                gh release create "$tag" dist/* --verify-tag --title "Choclite $tag" --generate-notes
+              fi
+              ;;
+          esac

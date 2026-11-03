@@ -43,6 +43,13 @@ pub struct ProfileView {
     pub merged: bool,
 }
 
+/// Shown in Settings → About. Nightly builds set `CHOCLITE_BUILD` (e.g.
+/// `0.1.0-nightly.20261103+abc1234`) so users can tell which commit they run.
+const APP_VERSION: &str = match option_env!("CHOCLITE_BUILD") {
+    Some(build) if !build.is_empty() => build,
+    _ => env!("CARGO_PKG_VERSION"),
+};
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct View {
@@ -101,7 +108,7 @@ impl AppState {
             language: Language::default(),
             english: false,
             core_version: None,
-            app_version: env!("CARGO_PKG_VERSION"),
+            app_version: APP_VERSION,
         };
         sync_from_engine(&mut view, &engine);
         Self {
