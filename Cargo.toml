@@ -22,13 +22,13 @@ hyper-util = { version = "0.1", features = ["tokio"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
-sha2 = "0.10"
+sha2 = "0.11"
 thiserror = "2"
 time = { version = "0.3", features = ["formatting", "local-offset", "macros", "parsing", "serde"] }
 tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
-tokio-tungstenite = "0.24"
+tokio-tungstenite = "0.30"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 # See https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
