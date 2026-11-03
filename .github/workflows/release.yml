@@ -186,9 +186,14 @@ jobs:
           # Point a tag at this commit (force: a re-run or the next nightly
           # moves it). Uses GH_REPO / GH_TOKEN of the current target.
           move_tag() {
-            if gh api "repos/$GH_REPO/git/refs/tags/$1" >/dev/null 2>&1; then
-              gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$1" -f sha="$GITHUB_SHA" -F force=true >/dev/null
-            else
+            local ref="repos/$GH_REPO/git/refs/tags/$1"
+            if gh api "$ref" >/dev/null 2>&1; then
+              # The built-in token may be refused when the move crosses a
+              # workflow file change; deleting and recreating is allowed.
+              gh api -X PATCH "$ref" -f sha="$GITHUB_SHA" -F force=true >/dev/null ||
+                { echo "Moving $1 was refused; recreating it"; gh api -X DELETE "$ref"; }
+            fi
+            if ! gh api "$ref" >/dev/null 2>&1; then
               gh api "repos/$GH_REPO/git/refs" -f ref="refs/tags/$1" -f sha="$GITHUB_SHA" >/dev/null
             fi
           }
@@ -206,7 +211,7 @@ jobs:
                 notes="Latest build of master: $BUILD ($GITHUB_SHA). Built automatically on every push; may be unstable."
                 if gh release view nightly >/dev/null 2>&1; then
                   gh release upload nightly dist/* --clobber
-                  gh release edit nightly --title "Nightly ($BUILD)" --notes "$notes" --prerelease --latest=false
+                  gh release edit nightly --title "Nightly ($BUILD)" --notes "$notes" --prerelease --latest=false --draft=false
                 else
                   gh release create nightly dist/* --verify-tag --prerelease --latest=false \
                     --title "Nightly ($BUILD)" --notes "$notes"
