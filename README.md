@@ -54,7 +54,7 @@ Download `Choclite_<version>_x64-setup.exe` from the [releases page](https://git
 
 - Installs for the current user only and **does not require administrator rights**.
 - Requires Microsoft Edge WebView2, which ships with Windows 10 (recent builds) and Windows 11; the installer adds it if missing.
-- On first connection Choclite downloads the latest clash-rs release.
+- The installer includes the clash-rs core, so the first connection works without reaching GitHub. Newer cores are offered as updates in Settings.
 - Enabling Enhanced Mode installs a small background service (`ChocliteService`) after one administrator prompt. It is removed together with the app.
 
 ### Linux
@@ -95,7 +95,7 @@ To test Enhanced Mode during development, build the service as well:
 cargo build -p clash-rs-desktop-service
 ```
 
-To use a local clash-rs build instead of downloading a release, set `CLASH_RS_DESKTOP_CORE` to the path of the binary.
+Bundling (`pnpm bundle:windows` / `pnpm bundle:linux`) fetches the latest clash-rs into `app/src-tauri/core/` first. To use a local clash-rs build instead, set `CLASH_RS_DESKTOP_CORE` to the path of the binary.
 
 Checks:
 

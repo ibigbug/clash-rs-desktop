@@ -54,7 +54,7 @@ Choclite 是基于 [clash-rs](https://github.com/Watfaq/clash-rs) 的桌面客�
 
 - 仅为当前用户安装，**不需要管理员权限**。
 - 依赖 Microsoft Edge WebView2。Windows 10 较新版本和 Windows 11 已经自带；如果缺失，安装程序会自动安装。
-- 首次连接时，Choclite 会自动下载最新版的 clash-rs。
+- 安装包自带 clash-rs 内核，第一次连接不需要访问 GitHub。内核的新版本会在设置里提示更新。
 - 开启增强模式时，经过一次管理员授权后，会安装一个后台服务（`ChocliteService`）。卸载应用时会一并移除。
 
 ### Linux
@@ -95,7 +95,7 @@ pnpm tauri dev
 cargo build -p clash-rs-desktop-service
 ```
 
-如果想使用本地编译的 clash-rs，而不是下载发布版本，可以把环境变量 `CLASH_RS_DESKTOP_CORE` 设置为该程序的路径。
+打包（`pnpm bundle:windows` / `pnpm bundle:linux`）时会先把最新版 clash-rs 下载到 `app/src-tauri/core/`。如果想改用本地编译的 clash-rs，可以把环境变量 `CLASH_RS_DESKTOP_CORE` 设置为该程序的路径。
 
 检查：
 
