@@ -28,7 +28,7 @@ time = { version = "0.3", features = ["formatting", "local-offset", "macros", "p
 tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-tungstenite = "0.24"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 # See https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
