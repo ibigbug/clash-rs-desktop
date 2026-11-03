@@ -21,6 +21,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 2
+    ignore:
+      # TypeScript 7 (the native compiler) has no JavaScript API yet, which
+      # SvelteKit and svelte-check still need. Revisit when they support it.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
     groups:
       npm:
         applies-to: version-updates

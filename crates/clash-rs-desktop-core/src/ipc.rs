@@ -618,7 +618,7 @@ mod platform {
                         return Ok(());
                     };
                     match message? {
-                        Message::Text(text) => on_message(text),
+                        Message::Text(text) => on_message(text.to_string()),
                         Message::Binary(bytes) => {
                             on_message(String::from_utf8_lossy(&bytes).into_owned())
                         }
@@ -650,8 +650,8 @@ mod platform {
                 break;
             };
             match message? {
-                Message::Text(text) => messages.push(text),
-                Message::Binary(bytes) => messages.push(String::from_utf8_lossy(&bytes).into()),
+                Message::Text(text) => messages.push(text.to_string()),
+                Message::Binary(bytes) => messages.push(String::from_utf8_lossy(&bytes).into_owned()),
                 Message::Close(_) => break,
                 Message::Ping(_) | Message::Pong(_) | Message::Frame(_) => {}
             }

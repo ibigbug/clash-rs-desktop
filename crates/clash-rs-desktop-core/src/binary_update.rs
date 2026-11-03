@@ -398,7 +398,10 @@ fn extract_clash_binary_from_zip(archive: &[u8]) -> anyhow::Result<Vec<u8>> {
     let mut zip = zip::ZipArchive::new(Cursor::new(archive))?;
     for index in 0..zip.len() {
         let mut file = zip.by_index(index)?;
-        let Some(name) = Path::new(file.name())
+        // An entry name the parser can't agree on is a malformed (or
+        // malicious) archive: refuse it instead of guessing.
+        let entry = file.name()?.into_owned();
+        let Some(name) = Path::new(&entry)
             .file_name()
             .and_then(|name| name.to_str())
         else {
@@ -416,7 +419,10 @@ fn extract_clash_binary_from_zip(archive: &[u8]) -> anyhow::Result<Vec<u8>> {
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 pub fn version_from_tag(tag: &str) -> String {
