@@ -1,0 +1,32 @@
+# Keep the distribution fork's master identical to this repo's master.
+#
+# Runs on every push to master, independent of the (slow, sometimes skipped
+# or failing) release builds, so the fork never lags behind — docs-only
+# changes included. The release workflow still syncs before publishing.
+#
+# Uses the same `WATFAQ_RELEASE_PAT` as the release workflow ("Contents" and
+# "Workflows" read and write on the distribution repo).
+name: Sync fork
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: sync-fork
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fast-forward the distribution repo
+        env:
+          GH_TOKEN: ${{ secrets.WATFAQ_RELEASE_PAT }}
+        run: |
+          gh api -X POST repos/Watfaq-legacy/clash-rs-desktop/merge-upstream -f branch=master
+          echo "Distribution repo master: $(gh api repos/Watfaq-legacy/clash-rs-desktop/commits/master --jq .sha)"
+          echo "This repo master:         $GITHUB_SHA"
