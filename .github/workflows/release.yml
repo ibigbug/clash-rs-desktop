@@ -1,13 +1,15 @@
-# Builds the Windows installer and Linux packages and publishes them on the
-# public distribution repo (a fork of this one).
+# Builds the Windows installer and Linux packages and publishes them on both
+# this repo (which keeps the release history) and the public distribution
+# repo (a fork of this one, where users download from).
 #
-# - Push to master: a nightly build. The `nightly` pre-release (and tag) on the
-#   distribution repo always holds the newest master build, under fixed file
-#   names. A newer push cancels a nightly build still in progress.
+# - Push to master: a nightly build. The `nightly` pre-release (and tag) on
+#   both repos always holds the newest master build, under fixed file names.
+#   A newer push cancels a nightly build still in progress.
 # - Push a tag `vX.Y.Z` (must match the app version): the same tag is created
-#   on the distribution repo and the release is published.
+#   on the distribution repo and the release is published on both repos.
 # - Run the workflow by hand: a test build of the current commit goes to a
-#   draft release named `test-build` (no tag, replaced on every run).
+#   draft release named `test-build` on this repo only (no tag, replaced on
+#   every run).
 #
 # Needs the secret `WATFAQ_RELEASE_PAT`: a fine-grained token for the
 # distribution repo only, with "Contents" and "Workflows" read and write
@@ -149,20 +151,24 @@ jobs:
   release:
     needs: [version, windows, linux]
     runs-on: ubuntu-latest
+    permissions:
+      # Releases and tags on this repo use the built-in token.
+      contents: write
     steps:
       - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
       - name: Sync the distribution repo
+        if: needs.version.outputs.kind != 'test'
         env:
           GH_TOKEN: ${{ secrets.WATFAQ_RELEASE_PAT }}
         # Fast-forward the fork so tags and releases can point at this commit.
         run: gh api -X POST "repos/$RELEASE_REPO/merge-upstream" -f branch=master
       - name: Publish
         env:
-          GH_TOKEN: ${{ secrets.WATFAQ_RELEASE_PAT }}
-          GH_REPO: ${{ env.RELEASE_REPO }}
+          MAIN_TOKEN: ${{ github.token }}
+          DIST_TOKEN: ${{ secrets.WATFAQ_RELEASE_PAT }}
           KIND: ${{ needs.version.outputs.kind }}
           VERSION: ${{ needs.version.outputs.version }}
           BUILD: ${{ needs.version.outputs.build }}
@@ -170,9 +176,15 @@ jobs:
           # Multi-path artifacts keep their bundle/<kind>/ folders; flatten.
           find dist -mindepth 2 -type f -exec mv -t dist {} +
           find dist -mindepth 1 -type d -delete
+          if [[ "$KIND" == nightly ]]; then
+            # Fixed names, so the download links always give the newest build.
+            for f in dist/*; do mv "$f" "${f/_${VERSION}_/_nightly_}"; done
+          fi
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+          ls -l dist
 
-          # Point a tag on the distribution repo at this commit (force: a
-          # re-run or the next nightly moves it).
+          # Point a tag at this commit (force: a re-run or the next nightly
+          # moves it). Uses GH_REPO / GH_TOKEN of the current target.
           move_tag() {
             if gh api "repos/$GH_REPO/git/refs/tags/$1" >/dev/null 2>&1; then
               gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$1" -f sha="$GITHUB_SHA" -F force=true >/dev/null
@@ -181,39 +193,43 @@ jobs:
             fi
           }
 
-          case "$KIND" in
-            test)
-              (cd dist && sha256sum * > SHA256SUMS.txt)
-              gh release delete test-build --yes 2>/dev/null || true
-              gh release create test-build dist/* --draft --target "$GITHUB_SHA" \
-                --title "Test build $BUILD" --notes "Built by hand from $GITHUB_SHA. Not a release."
-              ;;
+          publish() {
+            echo "::group::Publishing $KIND to $GH_REPO"
+            case "$KIND" in
+              test)
+                gh release delete test-build --yes 2>/dev/null || true
+                gh release create test-build dist/* --draft --target "$GITHUB_SHA" \
+                  --title "Test build $BUILD" --notes "Built by hand from $GITHUB_SHA. Not a release."
+                ;;
+              nightly)
+                move_tag nightly
+                notes="Latest build of master: $BUILD ($GITHUB_SHA). Built automatically on every push; may be unstable."
+                if gh release view nightly >/dev/null 2>&1; then
+                  gh release upload nightly dist/* --clobber
+                  gh release edit nightly --title "Nightly ($BUILD)" --notes "$notes" --prerelease --latest=false
+                else
+                  gh release create nightly dist/* --verify-tag --prerelease --latest=false \
+                    --title "Nightly ($BUILD)" --notes "$notes"
+                fi
+                ;;
+              release)
+                tag="v$VERSION"
+                move_tag "$tag"
+                if gh release view "$tag" >/dev/null 2>&1; then
+                  gh release upload "$tag" dist/* --clobber
+                  gh release edit "$tag" --draft=false --tag "$tag"
+                else
+                  gh release create "$tag" dist/* --verify-tag --title "Choclite $tag" --generate-notes
+                fi
+                ;;
+            esac
+            echo "::endgroup::"
+          }
 
-            nightly)
-              # Fixed names, so the download links always give the newest build.
-              for f in dist/*; do mv "$f" "${f/_${VERSION}_/_nightly_}"; done
-              (cd dist && sha256sum * > SHA256SUMS.txt)
-              ls -l dist
-              move_tag nightly
-              notes="Latest build of master: $BUILD ($GITHUB_SHA). Built automatically on every push; may be unstable."
-              if gh release view nightly >/dev/null 2>&1; then
-                gh release upload nightly dist/* --clobber
-                gh release edit nightly --title "Nightly ($BUILD)" --notes "$notes" --prerelease --latest=false
-              else
-                gh release create nightly dist/* --verify-tag --prerelease --latest=false \
-                  --title "Nightly ($BUILD)" --notes "$notes"
-              fi
-              ;;
-
-            release)
-              (cd dist && sha256sum * > SHA256SUMS.txt)
-              tag="v$VERSION"
-              move_tag "$tag"
-              if gh release view "$tag" >/dev/null 2>&1; then
-                gh release upload "$tag" dist/* --clobber
-                gh release edit "$tag" --draft=false --tag "$tag"
-              else
-                gh release create "$tag" dist/* --verify-tag --title "Choclite $tag" --generate-notes
-              fi
-              ;;
-          esac
+          # This repo keeps the full release history, so it survives if the
+          # distribution fork is ever removed; the fork is what users see.
+          # Test builds are for us only and stay here.
+          GH_REPO="$GITHUB_REPOSITORY" GH_TOKEN="$MAIN_TOKEN" publish
+          if [[ "$KIND" != test ]]; then
+            GH_REPO="$RELEASE_REPO" GH_TOKEN="$DIST_TOKEN" publish
+          fi
