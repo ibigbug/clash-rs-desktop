@@ -21,8 +21,11 @@ on:
     paths-ignore: ["**.md", "docs/**"]
   workflow_dispatch:
 
+# One run per kind of build. A newer master push or manual run cancels the
+# one still in progress instead of queueing behind it; tag releases never
+# cancel each other (each tag is its own group anyway).
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref_type == 'branch' }}
 
 permissions:
